@@ -2,23 +2,23 @@ name: CI - UFT
 
 on:
   workflow_dispatch:
-    inputs:
-      testsToRun:
-        description: 'Tests to run (from OpenText SDP/SDM)'
-        required: true
-        default: ''
-      suiteRunId:
-        description: 'Suite Run Id (from OpenText SDP/SDM)'
-        required: true
-        default: '0'
-      executionId:
-        description: 'Execution Id (from OpenText SDP/SDM)'
-        required: true
-        default: '0'
-      suiteId:
-        description: 'Suite Id (from OpenText SDP/SDM)'
-        required: true
-        default: '0'
+    # inputs:
+    #   testsToRun:
+    #     description: 'Tests to run (from OpenText SDP/SDM)'
+    #     required: true
+    #     default: ''
+    #   suiteRunId:
+    #     description: 'Suite Run Id (from OpenText SDP/SDM)'
+    #     required: true
+    #     default: '0'
+    #   executionId:
+    #     description: 'Execution Id (from OpenText SDP/SDM)'
+    #     required: true
+    #     default: '0'
+    #   suiteId:
+    #     description: 'Suite Id (from OpenText SDP/SDM)'
+    #     required: true
+    #     default: '0'
 
 permissions:
   actions: read
