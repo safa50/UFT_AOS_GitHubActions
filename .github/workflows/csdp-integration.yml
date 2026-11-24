@@ -20,7 +20,7 @@ permissions:
 jobs:
   sdp_integration_job:
     # List of runner tags
-    runs-on: [self-hosted]
+    runs-on: [windows-latest] # [self-hosted]
     name: SDP-Integration#${{github.event.action}}#${{github.event.workflow_run.id}}
     steps:
       - name: Publish to OpenText SDP
