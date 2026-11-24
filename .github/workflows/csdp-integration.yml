@@ -16,6 +16,7 @@ permissions:
   actions: read
   contents: read
   pull-requests: read
+  deployments: write
   
 jobs:
   sdp_integration_job:
@@ -41,5 +42,6 @@ jobs:
           serverBaseUrl: https://github.com/safa50/UFT_AOS_GitHubActions
           # Pattern for building the name of the pipeline (see README for full list of placeholders)
           pipelineNamePattern: '${workflow_name}'
+          testingFramework: uft
           # Pattern for identifying JUnit style report files for test result injection in OpenText Core SDP
           unitTestResultsGlobPattern: "**/*.xml"
