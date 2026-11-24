@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Publish to OpenText SDP
         # Reference to our public GitHub action
-        uses: opentext/sdp-github-actions-integration
+        uses: opentext/sdp-github-actions-integration@v26.4.0
         id: gitHubActionsIntegration
         # Config parameters for the integration
         with:
