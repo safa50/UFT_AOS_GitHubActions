@@ -42,6 +42,7 @@ jobs:
           serverBaseUrl: https://github.com/safa50/UFT_AOS_GitHubActions
           # Pattern for building the name of the pipeline (see README for full list of placeholders)
           pipelineNamePattern: '${workflow_name}'
-          testingFramework: uft
+          testingFramework: junit
           # Pattern for identifying JUnit style report files for test result injection in OpenText Core SDP
-          unitTestResultsGlobPattern: "**/*.xml"
+          # unitTestResultsGlobPattern: "**/*.xml"
+          unitTestResultsGlobPattern: '**/ft-junit-results.xml'
