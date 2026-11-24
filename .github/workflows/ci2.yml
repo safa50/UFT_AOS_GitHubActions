@@ -117,4 +117,201 @@ jobs:
       if: always()
       shell: powershell
       run: |
-        $resultsPath =
+        $resultsPath = Join-Path $env:GITHUB_WORKSPACE $env:RESULTS_DIR
+
+        Write-Host "Generated result files:"
+        Write-Host ""
+
+        if (Test-Path $resultsPath) {
+          Get-ChildItem $resultsPath -Recurse -File |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+        }
+        else {
+          Write-Warning "Results directory does not exist."
+        }
+
+    - name: Normalize JUnit classname
+      if: always()
+      shell: powershell
+      run: |
+        $file = Join-Path `
+          (Join-Path $env:GITHUB_WORKSPACE $env:RESULTS_DIR) `
+          $env:RES_XML
+
+        if (Test-Path $file) {
+          [xml]$xml = Get-Content $file -Raw
+
+          $testCases = $xml.SelectNodes("//testcase")
+
+          if ($testCases.Count -gt 0) {
+            foreach ($tc in $testCases) {
+              $tc.classname = "FT.AOS"
+            }
+
+            $xml.Save($file)
+
+            Write-Host "Updated classname to FT.AOS"
+          }
+          else {
+            Write-Warning "JUnit report contains no testcase elements."
+          }
+        }
+        else {
+          Write-Warning "JUnit file not found: $file"
+        }
+
+    - name: Summarize FT results
+      if: always()
+      shell: powershell
+      run: |
+        $root = Join-Path $env:GITHUB_WORKSPACE $env:RESULTS_DIR
+
+        $xmlFiles = @(
+          Get-ChildItem `
+            $root `
+            -Recurse `
+            -Filter "run_results.xml" `
+            -File `
+            -ErrorAction SilentlyContinue
+        )
+
+        $total = 0
+        $passedTests = 0
+        $warningTests = 0
+        $failedTests = 0
+        $errorTests = 0
+
+        "## FT Results" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "| Test | Status | Passed Steps | Warning Steps | Failed Steps |" >> $env:GITHUB_STEP_SUMMARY
+        "|---|---|---:|---:|---:|" >> $env:GITHUB_STEP_SUMMARY
+
+        foreach ($file in $xmlFiles) {
+
+          try {
+
+            [xml]$xml = Get-Content $file.FullName -Raw
+
+            $top = $xml.Results.ReportNode
+
+            if (-not $top) {
+              Write-Host "No ReportNode in $($file.FullName)"
+              continue
+            }
+
+            $name = [string]$top.Data.Name
+            $result = [string]$top.Data.Result
+
+            if ([string]::IsNullOrWhiteSpace($name)) {
+              $name = $file.Directory.Name
+            }
+
+            $pass = 0
+            $warn = 0
+            $fail = 0
+
+            foreach ($node in $xml.SelectNodes("//ReportNode[not(ReportNode)]")) {
+
+              $stepResult = [string]$node.Data.Result
+
+              if ([string]::IsNullOrWhiteSpace($stepResult)) {
+                continue
+              }
+
+              switch ($stepResult.ToLower()) {
+
+                "failed" {
+                  $fail++
+                }
+
+                "error" {
+                  $fail++
+                }
+
+                "warning" {
+                  $warn++
+                }
+
+                "passed" {
+                  $pass++
+                }
+
+                "done" {
+                  $pass++
+                }
+              }
+            }
+
+            switch ($result.ToLower()) {
+
+              "failed" {
+                $status = "Failed"
+                $failedTests++
+              }
+
+              "error" {
+                $status = "Error"
+                $errorTests++
+              }
+
+              "warning" {
+                $status = "Warning"
+                $warningTests++
+              }
+
+              default {
+                $status = "Passed"
+                $passedTests++
+              }
+            }
+
+            $safeName = $name.Replace("|", "\|")
+
+            "| $safeName | $status | $pass | $warn | $fail |" >> $env:GITHUB_STEP_SUMMARY
+
+            $total++
+          }
+          catch {
+            Write-Warning "Unable to parse: $($file.FullName)"
+            Write-Warning $_.Exception.Message
+          }
+        }
+
+        "" >> $env:GITHUB_STEP_SUMMARY
+
+        if ($total -eq 0) {
+          "_No detailed UFT run_results.xml files were found._" >> $env:GITHUB_STEP_SUMMARY
+          "" >> $env:GITHUB_STEP_SUMMARY
+        }
+
+        "**Total tests:** $total" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "**Passed tests:** $passedTests" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "**Warning tests:** $warningTests" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "**Failed tests:** $failedTests" >> $env:GITHUB_STEP_SUMMARY
+
+        if ($errorTests -gt 0) {
+          "" >> $env:GITHUB_STEP_SUMMARY
+          "**Error tests:** $errorTests" >> $env:GITHUB_STEP_SUMMARY
+        }
+
+    - name: Upload complete UFT results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: uft-results-AOS
+        path: uft-results
+        if-no-files-found: error
+        retention-days: 30
+      continue-on-error: true
+
+    - name: Check execution status
+      if: ${{ steps.run-tests.outputs.X != 0 }}
+      uses: actions/github-script@v6
+      with:
+        script: |
+          core.setFailed('The UFT execution failed with status ${{ steps.run-tests.outputs.X }}')
+      continue-on-error: true
