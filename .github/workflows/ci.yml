@@ -80,10 +80,10 @@ jobs:
           core.setFailed('The job run-tests failed with status ${{ steps.run-tests.outputs.X }} !')
       continue-on-error: true
 
-    - name: Archive Functional Test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: junit-test-report
-        path: FT-test-results.xml
-      continue-on-error: true
+    # - name: Archive Functional Test results
+    #   if: always()
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: junit-test-report
+    #     path: FT-test-results.xml
+    #   continue-on-error: true
