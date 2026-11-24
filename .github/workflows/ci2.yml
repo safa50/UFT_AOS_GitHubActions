@@ -1,0 +1,120 @@
+name: CI - UFT - 2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uft-aos-runner
+  cancel-in-progress: false
+
+env:
+  PROPS_TXT: FT-test-props.txt
+  RES_XML: FT-test-results.xml
+  RESULTS_DIR: uft-results
+  LAUNCHER_EXE: FTToolsLauncher.exe
+  LAUNCHER_URL: https://github.com/MicroFocus/ADM-FT-ToolsLauncher/releases/download/v24.2.0/FTToolsLauncher_net48.exe
+
+defaults:
+  run:
+    working-directory: .\
+
+jobs:
+  run-tests:
+    name: Run UFT AOS Test
+    runs-on: [self-hosted, ft-runner]
+    timeout-minutes: 30
+
+    steps:
+
+    - name: Checkout current repo
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.ref_name }}
+        clean: false
+        persist-credentials: false
+
+    - name: Prepare UFT results folder
+      shell: powershell
+      run: |
+        $resultsPath = Join-Path $env:GITHUB_WORKSPACE $env:RESULTS_DIR
+
+        if (Test-Path -LiteralPath $resultsPath) {
+          Remove-Item -LiteralPath $resultsPath -Recurse -Force
+        }
+
+        New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
+
+        Write-Host "Results directory:"
+        Write-Host $resultsPath
+
+    - name: Create properties file
+      shell: powershell
+      run: |
+        $testPath = Join-Path $env:GITHUB_WORKSPACE "UFT_AOS_GitHubActions"
+        $resultsPath = Join-Path $env:GITHUB_WORKSPACE $env:RESULTS_DIR
+        $junitPath = Join-Path $resultsPath $env:RES_XML
+
+        $escapedTestPath = $testPath.Replace('\', '\\')
+        $escapedResultsPath = $resultsPath.Replace('\', '\\')
+        $escapedJunitPath = $junitPath.Replace('\', '\\')
+
+        $content = @"
+        runType=FileSystem
+        resultsFilename=$escapedJunitPath
+        fsReportPath=$escapedResultsPath
+        Test1=$escapedTestPath
+        resultTestNameOnly=true
+        resultUnifiedTestClassname=true
+        "@
+
+        $content | Out-File -FilePath $env:PROPS_TXT -Encoding utf8
+
+    - name: Check properties file
+      shell: powershell
+      run: |
+        if (Test-Path $env:PROPS_TXT) {
+          Write-Host "Properties file created successfully!"
+          Write-Host ""
+          Get-Content $env:PROPS_TXT
+        }
+        else {
+          Write-Error "Properties file was not created!"
+          exit 1
+        }
+
+    - name: Download Functional Testing tool
+      shell: powershell
+      run: |
+        if (Test-Path $env:LAUNCHER_EXE) {
+          Write-Host "FTToolsLauncher.exe already exists"
+        }
+        else {
+          Invoke-WebRequest `
+            -Uri $env:LAUNCHER_URL `
+            -OutFile $env:LAUNCHER_EXE
+        }
+
+    - name: Run Functional Testing tool
+      id: run-tests
+      shell: powershell
+      run: |
+        $process = Start-Process `
+          -FilePath "$env:LAUNCHER_EXE" `
+          -ArgumentList "-paramfile $env:PROPS_TXT" `
+          -NoNewWindow `
+          -PassThru
+
+        $process | Wait-Process
+
+        Write-Host "FTToolsLauncher finished with exit code $($process.ExitCode)"
+
+        "X=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
+
+    - name: Inspect generated UFT reports
+      if: always()
+      shell: powershell
+      run: |
+        $resultsPath =
