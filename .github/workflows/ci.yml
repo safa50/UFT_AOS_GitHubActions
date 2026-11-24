@@ -15,33 +15,17 @@ defaults:
 
 jobs:
   run-tests:
-    runs-on: [self-hosted, ft-runner]
+
+    runs-on: [self-hosted]
 
     steps:
 
-      - name: Log workflow inputs for SDP
-        shell: powershell
-        run: |
-          $inputs = ConvertFrom-Json -InputObject '${{ toJson(github.event.inputs) }}'
-          Write-Host "execution_parameter:: $($inputs | ConvertTo-Json -Compress)"
-
-      - name: Checkout current repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
           clean: false
 
-      - name: Show workspace
-        shell: powershell
-        run: |
-          Write-Host "Current directory:"
-          Write-Host $pwd.Path
-
-          Write-Host ""
-          Write-Host "Files and folders:"
-          Get-ChildItem -Force
-
-      - name: Create properties file
+      - name: Create UFT properties file
         shell: powershell
         run: |
           $content = @"
@@ -54,66 +38,17 @@ jobs:
 
           $content | Out-File -FilePath $env:PROPS_TXT -Encoding utf8
 
-      - name: Check properties file
-        shell: powershell
-        run: |
-          if (Test-Path $env:PROPS_TXT) {
-            Write-Host "Properties file created successfully!"
-            Write-Host ""
-            Get-Content $env:PROPS_TXT
-          } else {
-            Write-Error "Properties file was not created!"
-            exit 1
-          }
+          Get-Content $env:PROPS_TXT
 
-      - name: Download Functional Testing tool
+      - name: Download FTToolsLauncher
         shell: powershell
         run: |
-          if (Test-Path $env:LAUNCHER_EXE) {
-            Write-Host "FTToolsLauncher.exe already exists"
-          } else {
-            Write-Host "Downloading FTToolsLauncher..."
+          if (-not (Test-Path $env:LAUNCHER_EXE)) {
             Invoke-WebRequest -Uri $env:LAUNCHER_URL -OutFile $env:LAUNCHER_EXE
           }
 
-      - name: Run Functional Testing tool
-        id: run-tests
+      - name: Run UFT test
         shell: powershell
         run: |
           $process = Start-Process -FilePath "$env:LAUNCHER_EXE" `
-            -ArgumentList "-paramfile $env:PROPS_TXT" `
-            -NoNewWindow -PassThru
-
-          $process | Wait-Process
-
-          Write-Host "FTToolsLauncher exit code: $($process.ExitCode)"
-
-          "X=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
-
-      - name: Check test execution status
-        if: ${{ steps.run-tests.outputs.X != 0 }}
-        uses: actions/github-script@v6
-        with:
-          script: |
-            core.setFailed('The job run-tests failed with status ${{ steps.run-tests.outputs.X }} !')
-        continue-on-error: true
-
-      - name: Check result XML
-        if: always()
-        shell: powershell
-        run: |
-          if (Test-Path $env:RES_XML) {
-            Write-Host "UFT result file created successfully:"
-            Get-Item $env:RES_XML
-          } else {
-            Write-Warning "FT-test-results.xml was not found."
-          }
-
-      - name: Archive Functional Test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: junit-test-report
-          path: FT-test-results.xml
-          if-no-files-found: warn
-        continue-on-error: true
+            -ArgumentList "-paramfile $env:PROPS
