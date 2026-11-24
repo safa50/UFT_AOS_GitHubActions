@@ -1,0 +1,376 @@
+name: CI - UFT
+
+on:
+  workflow_dispatch:
+    inputs:
+      testsToRun:
+        description: 'Tests to run (from OpenText SDP/SDM)'
+        required: true
+        default: ''
+      suiteRunId:
+        description: 'Suite Run Id (from OpenText SDP/SDM)'
+        required: true
+        default: '0'
+      executionId:
+        description: 'Execution Id (from OpenText SDP/SDM)'
+        required: true
+        default: '0'
+      suiteId:
+        description: 'Suite Id (from OpenText SDP/SDM)'
+        required: true
+        default: '0'
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  TESTS_TO_RUN_MTBX: testsToRun.mtbx
+  PROPS_TXT: FT-test-props.txt
+  RES_XML: FT-test-results.xml
+  LAUNCHER_EXE: FTToolsLauncher.exe
+  LAUNCHER_URL: https://github.com/MicroFocus/ADM-FT-ToolsLauncher/releases/download/v24.2.0/FTToolsLauncher_net48.exe
+
+defaults:
+  run:
+    shell: powershell
+    working-directory: .\
+
+jobs:
+  run-tests:
+    name: Run UFT AOS Tests
+
+    # The self-hosted Windows runner must have:
+    # 1. UFT One installed
+    # 2. Node.js access
+    # 3. The ft-runner label
+    runs-on: [self-hosted, ft-runner]
+
+    steps:
+
+      # -------------------------------------------------------
+      # 1. Log the workflow inputs
+      #
+      # Core SDP uses this output to associate the GitHub
+      # workflow run with the correct suite execution.
+      # -------------------------------------------------------
+
+      - name: Log workflow inputs for SDP
+        run: |
+          $inputs = ConvertFrom-Json -InputObject '${{ toJson(github.event.inputs) }}'
+          Write-Host "execution_parameter:: $($inputs | ConvertTo-Json -Compress)"
+
+      # -------------------------------------------------------
+      # 2. Checkout the current repository
+      # -------------------------------------------------------
+
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          clean: false
+
+      # -------------------------------------------------------
+      # 3. Display the workspace for troubleshooting
+      # -------------------------------------------------------
+
+      - name: Display repository information
+        run: |
+          Write-Host "Repository: ${{ github.repository }}"
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
+
+          Write-Host ""
+          Write-Host "Repository contents:"
+
+          Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Force |
+            Select-Object Name, FullName
+
+      # -------------------------------------------------------
+      # 4. Configure Node.js
+      #
+      # The OpenText conversion utility requires Node.js.
+      # -------------------------------------------------------
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # -------------------------------------------------------
+      # 5. Convert the SDP testsToRun parameter
+      #
+      # Core SDP passes the selected tests through testsToRun.
+      # The OpenText conversion utility converts this input
+      # into an MTBX file that FTToolsLauncher can execute.
+      # -------------------------------------------------------
+
+      - name: Convert testsToRun parameter
+        id: convert-tests
+        run: |
+          $testsToRun = '${{ github.event.inputs.testsToRun }}'
+
+          if ([string]::IsNullOrWhiteSpace($testsToRun)) {
+              Write-Error "The testsToRun input is empty. Start this workflow from OpenText SDP and select at least one automated test."
+              exit 1
+          }
+
+          Write-Host "Converting testsToRun input for UFT..."
+
+          $output = npx --yes @opentext/sdp-sdm-tests-to-run-conversion `
+            --framework="uft" `
+            --testsToRun="$testsToRun" `
+            --logLevel=0
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "The OpenText testsToRun conversion failed with exit code $LASTEXITCODE."
+              exit $LASTEXITCODE
+          }
+
+          if ([string]::IsNullOrWhiteSpace(($output -join ""))) {
+              Write-Error "The OpenText conversion utility returned an empty result."
+              exit 1
+          }
+
+          $mtbxPath = Join-Path $env:GITHUB_WORKSPACE $env:TESTS_TO_RUN_MTBX
+
+          $output |
+            Out-File `
+              -FilePath $mtbxPath `
+              -Encoding utf8
+
+          Write-Host ""
+          Write-Host "MTBX file created:"
+          Write-Host $mtbxPath
+
+          Write-Host ""
+          Write-Host "MTBX contents:"
+          Get-Content $mtbxPath
+
+      # -------------------------------------------------------
+      # 6. Verify the generated MTBX file
+      # -------------------------------------------------------
+
+      - name: Check testsToRun MTBX file
+        run: |
+          $mtbxPath = Join-Path $env:GITHUB_WORKSPACE $env:TESTS_TO_RUN_MTBX
+
+          if (-not (Test-Path $mtbxPath -PathType Leaf)) {
+              Write-Error "The MTBX file was not created: $mtbxPath"
+              exit 1
+          }
+
+          if ((Get-Item $mtbxPath).Length -eq 0) {
+              Write-Error "The generated MTBX file is empty."
+              exit 1
+          }
+
+          Write-Host "The MTBX file was created successfully."
+
+          Get-Item $mtbxPath |
+            Select-Object Name, FullName, Length, LastWriteTime
+
+      # -------------------------------------------------------
+      # 7. Create the FTToolsLauncher properties file
+      #
+      # Test1 points to the generated MTBX file.
+      # -------------------------------------------------------
+
+      - name: Create Functional Testing properties file
+        run: |
+          $mtbxPath = Join-Path $env:GITHUB_WORKSPACE $env:TESTS_TO_RUN_MTBX
+          $resultPath = Join-Path $env:GITHUB_WORKSPACE $env:RES_XML
+          $propertiesPath = Join-Path $env:GITHUB_WORKSPACE $env:PROPS_TXT
+
+          $escapedMtbxPath = $mtbxPath.Replace('\', '\\')
+          $escapedResultPath = $resultPath.Replace('\', '\\')
+
+          $content = @"
+          
+          resultsFilename=$escapedResultPath
+          Test1=$escapedMtbxPath
+          resultTestNameOnly=true
+          resultUnifiedTestClassname=true
+          "@
+
+          $content |
+            Out-File `
+              -FilePath $propertiesPath `
+              -Encoding utf8
+
+          if (-not (Test-Path $propertiesPath -PathType Leaf)) {
+              Write-Error "The Functional Testing properties file was not created."
+              exit 1
+          }
+
+          Write-Host "Functional Testing properties file created:"
+          Write-Host $propertiesPath
+
+          Write-Host ""
+          Write-Host "Properties file contents:"
+          Get-Content $propertiesPath
+
+      # -------------------------------------------------------
+      # 8. Download FTToolsLauncher
+      # -------------------------------------------------------
+
+      - name: Download Functional Testing tool
+        run: |
+          $launcherPath = Join-Path $env:GITHUB_WORKSPACE $env:LAUNCHER_EXE
+
+          if (Test-Path $launcherPath -PathType Leaf) {
+              Write-Host "FTToolsLauncher already exists:"
+              Write-Host $launcherPath
+          }
+          else {
+              Write-Host "Downloading FTToolsLauncher..."
+              Write-Host $env:LAUNCHER_URL
+
+              Invoke-WebRequest `
+                -Uri $env:LAUNCHER_URL `
+                -OutFile $launcherPath
+
+              if (-not (Test-Path $launcherPath -PathType Leaf)) {
+                  Write-Error "FTToolsLauncher could not be downloaded."
+                  exit 1
+              }
+
+              Write-Host "FTToolsLauncher downloaded successfully:"
+              Write-Host $launcherPath
+          }
+
+      # -------------------------------------------------------
+      # 9. Run the selected UFT test
+      #
+      # continue-on-error allows the XML result to be uploaded
+      # even when the UFT test fails.
+      # -------------------------------------------------------
+
+      - name: Run Functional Testing tool
+        id: run-tests
+        continue-on-error: true
+        run: |
+          $launcherPath = Join-Path $env:GITHUB_WORKSPACE $env:LAUNCHER_EXE
+          $propertiesPath = Join-Path $env:GITHUB_WORKSPACE $env:PROPS_TXT
+
+          Write-Host "Starting UFT execution..."
+          Write-Host "Launcher: $launcherPath"
+          Write-Host "Properties file: $propertiesPath"
+
+          $process = Start-Process `
+            -FilePath $launcherPath `
+            -ArgumentList "-paramfile `"$propertiesPath`"" `
+            -WorkingDirectory $env:GITHUB_WORKSPACE `
+            -NoNewWindow `
+            -Wait `
+            -PassThru
+
+          $exitCode = $process.ExitCode
+
+          Write-Host ""
+          Write-Host "FTToolsLauncher exit code: $exitCode"
+
+          "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          if ($exitCode -ne 0) {
+              Write-Error "FTToolsLauncher returned exit code $exitCode."
+              exit $exitCode
+          }
+
+      # -------------------------------------------------------
+      # 10. Check the generated test result
+      # -------------------------------------------------------
+
+      - name: Check Functional Testing results
+        id: check-results
+        if: always()
+        run: |
+          $resultPath = Join-Path $env:GITHUB_WORKSPACE $env:RES_XML
+
+          Write-Host "Expected result file:"
+          Write-Host $resultPath
+
+          if (Test-Path $resultPath -PathType Leaf) {
+              Write-Host ""
+              Write-Host "Functional Testing result XML created successfully."
+
+              Get-Item $resultPath |
+                Select-Object Name, FullName, Length, LastWriteTime
+
+              "results_found=true" >> $env:GITHUB_OUTPUT
+          }
+          else {
+              Write-Warning "FT-test-results.xml was not created."
+
+              Write-Host ""
+              Write-Host "XML files found in the workspace:"
+
+              $xmlFiles = @(
+                Get-ChildItem `
+                  -Path $env:GITHUB_WORKSPACE `
+                  -Filter "*.xml" `
+                  -File `
+                  -Recurse `
+                  -ErrorAction SilentlyContinue
+              )
+
+              if ($xmlFiles.Count -gt 0) {
+                  $xmlFiles |
+                    Select-Object Name, FullName, Length, LastWriteTime
+              }
+              else {
+                  Write-Host "No XML files were found."
+              }
+
+              "results_found=false" >> $env:GITHUB_OUTPUT
+          }
+
+      # -------------------------------------------------------
+      # 11. Upload the result artifact
+      #
+      # The artifact name and XML format allow the separate
+      # csdp-integration.yml workflow to retrieve the result.
+      # -------------------------------------------------------
+
+      - name: Archive Functional Test results
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-test-report
+          path: ${{ github.workspace }}/FT-test-results.xml
+          if-no-files-found: warn
+          retention-days: 30
+
+      # -------------------------------------------------------
+      # 12. Set the final workflow status
+      #
+      # This runs after the artifact upload so test results are
+      # still available when UFT reports a failure.
+      # -------------------------------------------------------
+
+      - name: Set final workflow status
+        if: always()
+        run: |
+          $exitCode = '${{ steps.run-tests.outputs.exit_code }}'
+          $resultsFound = '${{ steps.check-results.outputs.results_found }}'
+
+          if (:IsNullOrWhiteSpace($exitCode)) {
+              Write-Error "UFT did not return an exit code."
+              exit 1
+          }
+
+          if ($exitCode -ne "0") {
+              Write-Error "UFT execution failed with exit code $exitCode."
+              exit 1
+          }
+
+          if ($resultsFound -ne "true") {
+              Write-Error "UFT completed, but FT-test-results.xml was not created."
+              exit 1
+          }
+
+          Write-Host "UFT execution completed successfully."
+          Write-Host "FT-test-results.xml was uploaded as junit-test-report."
