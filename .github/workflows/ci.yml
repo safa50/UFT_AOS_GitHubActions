@@ -15,20 +15,17 @@ defaults:
 
 jobs:
   run-tests:
-    runs-on: [ self-hosted, ft-runner ]
+    runs-on: [self-hosted, ft-runner]
+
     steps:
-    - name: Log workflow inputs for SDP
-      run: |
-        $inputs = ConvertFrom-Json -InputObject '${{ toJson(github.event.inputs) }}'
-        Write-Host "execution_parameter:: $($inputs | ConvertTo-Json -Compress)"
-      
+
     - name: Checkout current repo
       uses: actions/checkout@v4
       with:
-        ref: ${{github.ref_name}}
+        ref: ${{ github.ref_name }}
         clean: false
-        
-    - name: Create properties file (UTF-8)
+
+    - name: Create properties file
       shell: powershell
       run: |
         $content = @"
@@ -39,9 +36,8 @@ jobs:
         resultUnifiedTestClassname=true
         "@
 
-        # Save file with UTF-8 encoding
         $content | Out-File -FilePath $env:PROPS_TXT -Encoding utf8
-  
+
     - name: Check properties file
       shell: powershell
       run: |
@@ -55,11 +51,12 @@ jobs:
 
     - name: Download Functional Testing tool
       shell: powershell
-      run:  if (TEST-PATH $env:LAUNCHER_EXE) {
-              echo "FTToolsLauncher.exe already exists"
-            } else {
-              Invoke-WebRequest -Uri $env:LAUNCHER_URL -OutFile $env:LAUNCHER_EXE
-            }
+      run: |
+        if (Test-Path $env:LAUNCHER_EXE) {
+          Write-Host "FTToolsLauncher.exe already exists"
+        } else {
+          Invoke-WebRequest -Uri $env:LAUNCHER_URL -OutFile $env:LAUNCHER_EXE
+        }
 
     - name: Run Functional Testing tool
       id: run-tests
@@ -69,22 +66,24 @@ jobs:
           -ArgumentList "-paramfile $env:PROPS_TXT" `
           -NoNewWindow -PassThru *>&1
 
-        # Wait for the process to complete
         $process | Wait-Process
 
-        # Capture Exit Code
+        Write-Host "FTToolsLauncher finished with exit code $($process.ExitCode)"
+
         "X=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
-  
-    - if: ${{ steps.run-tests.outputs.X != 0 }}
+
+    - name: Check execution status
+      if: ${{ steps.run-tests.outputs.X != 0 }}
       uses: actions/github-script@v6
       with:
         script: |
           core.setFailed('The job run-tests failed with status ${{ steps.run-tests.outputs.X }} !')
       continue-on-error: true
-          
+
     - name: Archive Functional Test results
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: junit-test-report
-        path: ${{ $env.RES_XML }}
+        path: FT-test-results.xml
       continue-on-error: true
