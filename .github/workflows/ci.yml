@@ -21,9 +21,9 @@ jobs:
 
     - name: Checkout current repo
       uses: actions/checkout@v7
-      with:
-        ref: ${{ github.ref_name }}
-        clean: false
+      # with:
+      #   ref: ${{ github.ref_name }}
+      #   clean: false
 
     - name: Create properties file
       shell: powershell
@@ -72,15 +72,15 @@ jobs:
 
         "X=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
         
-    - name: Show remaining processes
-      if: always()
-      shell: powershell
-      run: |
-        Write-Host "Processes still running after UFT execution:"
-        Get-Process |
-          Sort-Object ProcessName |
-          Select-Object ProcessName, Id |
-          Format-Table -AutoSize
+    # - name: Show remaining processes
+    #   if: always()
+    #   shell: powershell
+    #   run: |
+    #     Write-Host "Processes still running after UFT execution:"
+    #     Get-Process |
+    #       Sort-Object ProcessName |
+    #       Select-Object ProcessName, Id |
+    #       Format-Table -AutoSize
           
     - name: Check execution status
       if: ${{ steps.run-tests.outputs.X != 0 }}
