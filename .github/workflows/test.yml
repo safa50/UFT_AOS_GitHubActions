@@ -1,0 +1,21 @@
+name: Runner Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: [self-hosted, ft-runner]
+    timeout-minutes: 10
+
+    steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Simple test
+      shell: powershell
+      run: |
+        Write-Host "Hello from GitHub Actions"
+        Write-Host "Runner: $env:RUNNER_NAME"
+        Write-Host "Test completed successfully"
