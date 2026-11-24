@@ -1,1 +1,44 @@
-
+name: OpenText Software Delivery Platform Integration
+# Events the integration should be triggered on
+on:
+  pull_request:
+    types: [opened, edited, closed, reopened]
+  workflow_run:
+    # List of workflows to integrate with OpenText Core SDP / SDM
+    workflows: [CI]
+    # For automated tests, the requested and in_progress types are not required
+    types: [requested, in_progress, completed]
+# Node configuration for allowing HTTPS requests
+env: 
+    NODE_TLS_REJECT_UNAUTHORIZED: 0
+# Minimum required permissions for the integration workflow
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+jobs:
+  sdp_integration_job:
+    # List of runner tags
+    runs-on: [self-hosted]
+    name: SDP-Integration#${{github.event.action}}#${{github.event.workflow_run.id}}
+    steps:
+      - name: Publish to OpenText SDP
+        # Reference to our public GitHub action
+        uses: opentext/sdp-github-actions-integration
+        id: gitHubActionsIntegration
+        # Config parameters for the integration
+        with:
+          # OpenText Core SDP / SDM connection data
+          octaneUrl: 'https://almoctane-ams.saas.microfocus.com/'
+          octaneSharedSpace: 468005
+          octaneWorkspace: 31002
+          octaneClientId: ${{secrets.SDP_CLIENT_ID}}
+          octaneClientSecret: ${{secrets.SDP_CLIENT_SECRET}}
+          # Automatically provided GitHub token
+          githubToken: ${{secrets.GITHUB_TOKEN}}
+          # The url that the CI Server in OpenText Core SDP will point to
+          serverBaseUrl: https://github.com/safa50/UFT_AOS_GitHubActions
+          # Pattern for building the name of the pipeline (see README for full list of placeholders)
+          pipelineNamePattern: '${workflow_name}'
+          # Pattern for identifying JUnit style report files for test result injection in OpenText Core SDP
+          unitTestResultsGlobPattern: "**/*.xml"
