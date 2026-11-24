@@ -71,7 +71,17 @@ jobs:
         Write-Host "FTToolsLauncher finished with exit code $($process.ExitCode)"
 
         "X=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
-
+        
+    - name: Show remaining processes
+      if: always()
+      shell: powershell
+      run: |
+        Write-Host "Processes still running after UFT execution:"
+        Get-Process |
+          Sort-Object ProcessName |
+          Select-Object ProcessName, Id |
+          Format-Table -AutoSize
+          
     - name: Check execution status
       if: ${{ steps.run-tests.outputs.X != 0 }}
       uses: actions/github-script@v6
